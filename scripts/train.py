@@ -25,7 +25,7 @@ from typing import List
 
 import torch
 import pytorch_lightning as pl
-from pytorch_lightning.loggers import MLFlowLogger
+from pytorch_lightning.loggers import MLFlowLogger, WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 
 from loguru import logger
@@ -45,6 +45,8 @@ from nndet.evaluator.registry import save_metric_output, evaluate_box_dir, \
     evaluate_case_dir, evaluate_seg_dir
 from nndet.inference.ensembler.base import extract_results
 from nndet.ptmodule import MODULE_REGISTRY
+import wandb
+
 
 
 @env_guard
@@ -52,6 +54,7 @@ def train():
     """
     Training entry
     """
+
     parser = argparse.ArgumentParser()
     parser.add_argument('task', type=str,
                         help="Task id e.g. Task12_LIDC OR 12 OR LIDC")
@@ -185,8 +188,20 @@ def _train(
 
     train_dir = init_train_dir(cfg)
 
-    pl_logger = MLFlowLogger(
+    '''pl_logger = MLFlowLogger(
         experiment_name=cfg["task"],
+        tags={
+            "host": socket.gethostname(),
+            "fold": cfg["exp"]["fold"],
+            "task": cfg["task"],
+            "job_id": os.getenv('LSB_JOBID', 'no_id'),
+            "mlflow.runName": cfg["exp"]["id"],
+            },
+        save_dir=os.getenv("MLFLOW_TRACKING_URI", "./mlruns"),
+    )'''
+
+    pl_logger = WandbLogger(
+        name=cfg["task"],
         tags={
             "host": socket.gethostname(),
             "fold": cfg["exp"]["fold"],

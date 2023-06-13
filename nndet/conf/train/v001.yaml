@@ -5,7 +5,8 @@ defaults:
 module: RetinaUNetV001
 predictor: BoxPredictorSelective
 
-plan: D3V001_3d # plan used for training
+#plan: D3V001_3d # plan used for training
+plan: D3V001_3dlr1
 planner: D3V001 # planner used for preprocessing
 
 augment_cfg:
@@ -41,9 +42,12 @@ trainer_cfg:
   monitor_key: "mAP_IoU_0.10_0.50_0.05_MaxDet_100" # used to determine the best model
   monitor_mode: "max" # metric operation mode "min" or "max"
 
-  max_num_epochs: 50 # max number of epochs
-  num_train_batches_per_epoch: 2500 # number of train batches per epoch
-  num_val_batches_per_epoch: 100 # number of val batches per epoch
+  #max_num_epochs: 50 # max number of epochs
+  max_num_epochs: 20
+  #num_train_batches_per_epoch: 2500 # number of train batches per epoch
+  num_train_batches_per_epoch: 2500
+  #num_val_batches_per_epoch: 100 # number of val batches per epoch
+  num_val_batches_per_epoch: 100
 
   initial_lr: 0.01 # initial learning rate to start with
   sgd_momentum: 0.9 # momentum term
@@ -55,6 +59,7 @@ trainer_cfg:
 
   poly_gamma: 0.9
 
+  #swa_epochs: 5
   swa_epochs: 10 # number of epochs to run swa with cyclic learning rate
   # sweep_ckpt: Select checkpoint identifier for sweeping. Default "last".
 

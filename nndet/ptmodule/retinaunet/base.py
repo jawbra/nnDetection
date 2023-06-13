@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-   http://www.apache.org/licenses/LICENSE-2.0
+http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -62,6 +62,7 @@ from nndet.inference.loading import get_loader_fn
 from nndet.inference.helper import predict_dir
 from nndet.inference.ensembler.segmentation import SegmentationEnsembler
 from nndet.inference.ensembler.detection import BoxEnsemblerSelective
+import pickle
 
 from nndet.io.transforms import (
     Compose,
@@ -69,6 +70,7 @@ from nndet.io.transforms import (
     Instances2Segmentation,
     FindInstances,
     )
+
 
 
 class RetinaUNetModule(LightningBaseModuleSWA):
@@ -85,11 +87,11 @@ class RetinaUNetModule(LightningBaseModuleSWA):
     segmenter_cls = DiCESegmenter
 
     def __init__(self,
-                 model_cfg: dict,
-                 trainer_cfg: dict,
-                 plan: dict,
-                 **kwargs
-                 ):
+                model_cfg: dict,
+                trainer_cfg: dict,
+                plan: dict,
+                **kwargs
+                ):
         """
         RetinaUNet Lightning Module Skeleton
         
@@ -153,8 +155,20 @@ class RetinaUNetModule(LightningBaseModuleSWA):
             evaluation=False,
             batch_num=batch_idx,
         )
-        loss = sum(losses.values())
-        return {"loss": loss, **{key: l.detach().item() for key, l in losses.items()}}
+
+        no_duplicate_losses = {key: losses.get(key, 'default_value') for key, value in losses.items() if isinstance(value, list) != True or key.startswith('_') != True}
+
+
+        loss = sum(no_duplicate_losses.values())
+        return {"loss": loss, **{key: l.detach().item() for key, l in no_duplicate_losses.items()}}
+
+
+
+#load pickle file with dictioinary study_pseudonym --> subgroup
+#with open('/home/brandtj/Data/brandtj/study_to_patient.pkl', 'rb') as f:
+    #study_pseudonym = pickle.load(f)
+
+
 
     def validation_step(self, batch, batch_idx):
         """
@@ -175,11 +189,53 @@ class RetinaUNetModule(LightningBaseModuleSWA):
                 evaluation=True,
                 batch_num=batch_idx,
             )
-            loss = sum(losses.values())
+            
+            with open('/home/brandtj/Data/brandtj/appendix_patients_dict.pkl', 'rb') as f:
+                study_pseudonym = pickle.load(f)
+
+            loss_h = 0
+            loss_d = 0
+            loss_healthy = 0
+            loss_diseased = 0
+            losses_split_by_group = {}
+
+            for key, value in losses.items():
+                if isinstance(value, list):
+                    counter_healthy = 1e-12
+                    counter_diseased = 1e-12
+                    for idx in range(len(batch['keys'])):
+                        if study_pseudonym[batch['keys'][idx].split('$')[-1]] == 'appendicitis':
+                            loss_diseased += value[idx]
+                            counter_diseased += 1
+                            loss_d = loss_diseased / counter_diseased
+                      
+                        elif study_pseudonym[batch['keys'][idx].split('$')[-1]] == 'control_group':
+                            loss_healthy += value[idx]
+                            counter_healthy += 1
+                            loss_h = loss_healthy / counter_healthy
+
+                    losses_split_by_group[f'appendicits{key}'] = loss_d
+                    losses_split_by_group[f'control_group{key}'] = loss_h
+                 
+        #avoid error because of individual losses inside dict
+        #keys = list(losses.keys())[:4]
+        no_duplicate_losses = {key: losses.get(key, 'default_value') for key, value in losses.items() if isinstance(value, list) != True or key.startswith('_') != True}
+        loss = sum(no_duplicate_losses.values())
+
+        for key, value in losses_split_by_group.items():
+            if key not in losses:
+                no_duplicate_losses[key] = torch.tensor(value, device='cuda')
+
+        
+        #loss = sum(losses.values())
 
         self.evaluation_step(prediction=prediction, targets=targets)
         return {"loss": loss.detach().item(),
-                **{key: l.detach().item() for key, l in losses.items()}}
+                **{key: l.detach().item() for key, l in no_duplicate_losses.items()}}
+
+        #self.evaluation_step(prediction=prediction, targets=targets)
+        #return {"loss": loss.detach().item(),
+                #**{key: l.detach().item() for key, l in losses.items()}}
 
     def evaluation_step(
         self,
@@ -328,12 +384,12 @@ class RetinaUNetModule(LightningBaseModuleSWA):
 
     @classmethod
     def from_config_plan(cls,
-                         model_cfg: dict,
-                         plan_arch: dict,
-                         plan_anchors: dict,
-                         log_num_anchors: str = None,
-                         **kwargs,
-                         ):
+                        model_cfg: dict,
+                        plan_arch: dict,
+                        plan_anchors: dict,
+                        log_num_anchors: str = None,
+                        **kwargs,
+                        ):
         """
         Create Configurable RetinaUNet
 
@@ -371,7 +427,7 @@ class RetinaUNetModule(LightningBaseModuleSWA):
         _plan_anchors = copy.deepcopy(plan_anchors)
         coder = BoxCoderND(weights=(1.,) * (plan_arch["dim"] * 2))
         s_param = False if ("aspect_ratios" in _plan_anchors) and \
-                           (_plan_anchors["aspect_ratios"] is not None) else True
+                        (_plan_anchors["aspect_ratios"] is not None) else True
         anchor_generator = get_anchor_generator(
             plan_arch["dim"], s_param=s_param)(**_plan_anchors)
 
@@ -669,12 +725,12 @@ class RetinaUNetModule(LightningBaseModuleSWA):
 
     @classmethod
     def get_predictor(cls,
-                      plan: Dict,
-                      models: Sequence[RetinaUNetModule],
-                      num_tta_transforms: int = None,
-                      do_seg: bool = False,
-                      **kwargs,
-                      ) -> Predictor:
+                    plan: Dict,
+                    models: Sequence[RetinaUNetModule],
+                    num_tta_transforms: int = None,
+                    do_seg: bool = False,
+                    **kwargs,
+                    ) -> Predictor:
         # process plan
         crop_size = plan["patch_size"]
         batch_size = plan["batch_size"]
@@ -712,13 +768,13 @@ class RetinaUNetModule(LightningBaseModuleSWA):
         return predictor
 
     def sweep(self,
-              cfg: dict,
-              save_dir: os.PathLike,
-              train_data_dir: os.PathLike,
-              case_ids: Sequence[str],
-              run_prediction: bool = True,
-              **kwargs,
-              ) -> Dict[str, Any]:
+            cfg: dict,
+            save_dir: os.PathLike,
+            train_data_dir: os.PathLike,
+            case_ids: Sequence[str],
+            run_prediction: bool = True,
+            **kwargs,
+            ) -> Dict[str, Any]:
         """
         Sweep detection parameters to find the best predictions
 

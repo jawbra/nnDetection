@@ -115,3 +115,8 @@ ENV/
 *.model
 
 .DS_Store
+
+#from our files
+wandb/
+models/
+ml_flow_logging/

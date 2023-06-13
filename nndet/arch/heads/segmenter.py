@@ -200,6 +200,8 @@ class DiCESegmenter(Segmenter):
         return {
             "seg_ce": self.alpha * self.ce_loss(seg_logits, target.long()),
             "seg_dice": (1 - self.alpha) * self.dice_loss(seg_logits, target),
+            "_seg_ce": [(self.alpha * self.ce_loss(seg_logits[idx].unsqueeze(dim=0), target[idx].unsqueeze(dim=0).long())) for idx in range(target.shape[0])],
+            "_seg_dice": [((1 - self.alpha) * self.dice_loss(seg_logits[idx].unsqueeze(dim=0), target[idx].unsqueeze(dim=0))) for idx in range(target.shape[0])],
             }
 
     def postprocess_for_inference(self,
