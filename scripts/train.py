@@ -25,7 +25,7 @@ from typing import List
 
 import torch
 import pytorch_lightning as pl
-from pytorch_lightning.loggers import MLFlowLogger
+from pytorch_lightning.loggers import MLFlowLogger, WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 
 from loguru import logger
@@ -45,6 +45,8 @@ from nndet.evaluator.registry import save_metric_output, evaluate_box_dir, \
     evaluate_case_dir, evaluate_seg_dir
 from nndet.inference.ensembler.base import extract_results
 from nndet.ptmodule import MODULE_REGISTRY
+
+
 
 
 @env_guard
@@ -185,8 +187,9 @@ def _train(
 
     train_dir = init_train_dir(cfg)
 
-    pl_logger = MLFlowLogger(
-        experiment_name=cfg["task"],
+    pl_logger = WandbLogger(
+        project=cfg["task"],
+        name=cfg["exp"]["id"],
         tags={
             "host": socket.gethostname(),
             "fold": cfg["exp"]["fold"],

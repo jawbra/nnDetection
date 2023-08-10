@@ -70,6 +70,65 @@ from nndet.io.transforms import (
     FindInstances,
     )
 
+from rodeo import RoDeO
+
+rodeo = RoDeO(class_names=['air', 'roi_main_pathology', 'coprolite', 'fat_stranding', 'inflammatory_liquid', 'perityphlitic_abscess'], is_3d=True)
+
+
+class RodeoFormatter:
+    def __init__(self, predictions, targets):
+        self.predictions = predictions
+        self.targets = targets
+
+    def format_boxes_for_rodeo(self, boxes, labels):
+        """Format the bounding boxes and append class labels for RoDeO."""
+        if boxes.numel() == 0:  # If the tensor is empty
+            return np.empty((0,7))
+
+        # Extract the min and max values
+        zmin, xmin, zmax, xmax, ymin, ymax = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3], boxes[:, 4], boxes[:, 5]
+
+        # Convert into center-based format
+        x = (xmin + xmax) / 2
+        y = (ymin + ymax) / 2
+        z = (zmin + zmax) / 2
+        w = xmax - xmin
+        h = ymax - ymin
+        d = zmax - zmin
+
+        formatted_boxes = torch.stack([x, y, z, w, h, d], dim=1)
+
+        # Convert class labels to float and add a new dimension
+        cls = labels.float().unsqueeze(1)
+
+        # Combine the bounding box data with the class labels
+        return torch.cat([formatted_boxes, cls], dim=1).cpu().numpy()
+
+    def process(self):
+        processed_preds = []
+        
+        for boxes, scores, cls, tgt_boxes in zip(self.predictions['pred_boxes'], 
+                                                self.predictions['pred_scores'], 
+                                                self.predictions['pred_labels'],
+                                                self.targets['target_boxes']):
+            top_i = len(tgt_boxes)
+            
+            # Get the indices of the top `i` confidence scores
+            _, top_indices = scores.topk(top_i)
+            
+            # Select the bounding boxes and class labels with the top `i` confidence scores
+            top_boxes = boxes[top_indices]
+            top_classes = cls[top_indices]
+            
+            processed_preds.append(self.format_boxes_for_rodeo(top_boxes, top_classes))
+        
+        processed_targets = [self.format_boxes_for_rodeo(boxes, cls) 
+                             for boxes, cls in zip(self.targets['target_boxes'], self.targets['target_classes'])]
+
+        return processed_preds, processed_targets
+
+
+
 
 class RetinaUNetModule(LightningBaseModuleSWA):
     base_conv_cls = ConvInstanceRelu
@@ -178,8 +237,29 @@ class RetinaUNetModule(LightningBaseModuleSWA):
             loss = sum(losses.values())
 
         self.evaluation_step(prediction=prediction, targets=targets)
+        
+        formatter = RodeoFormatter(prediction, targets)
+        processed_pred, processed_target = formatter.process()
+
+        rodeo_score = self.rodeo_step(processed_preds=processed_pred, processed_targets=processed_target)
+
         return {"loss": loss.detach().item(),
-                **{key: l.detach().item() for key, l in losses.items()}}
+                **{key: l.detach().item() for key, l in losses.items()},
+                **{key: l for key, l in rodeo_score.items()}}
+    
+
+    def rodeo_step(
+            self,
+            processed_preds,
+            processed_targets
+    ):
+        rodeo.add(processed_preds, processed_targets)
+        score = rodeo.compute()
+        return score
+        
+
+
+
 
     def evaluation_step(
         self,
@@ -293,6 +373,10 @@ class RetinaUNetModule(LightningBaseModuleSWA):
 
         for key, item in metric_scores.items():
             self.log(f'{key}', item, on_step=None, on_epoch=True, prog_bar=False, logger=True)
+
+        #####rodeo
+        rodeo.reset()
+        #####rodeo
 
     def configure_optimizers(self):
         """
